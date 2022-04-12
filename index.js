@@ -62,9 +62,6 @@ const shuffle = array => {
 shuffle(cards);
 
 
-// app.get('/', function (req, res) {
-//     res.sendFile('index.html', {root: __dirname});
-// });
 
 io.on("connection", (socket) => {    
     socket.emit("card-count", cards.length);
@@ -132,8 +129,8 @@ io.on("connection", (socket) => {
     });
 });
 
-httpServer.listen(8888, "0.0.0.0");
-
+httpServer.listen(80, "0.0.0.0");
+console.log("Server started on port 80");
 
 function SendHands() {
     let nhands = {};
