@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<head>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <title>Catan Development Deck</title>
+
+        <link rel="stylesheet" type="text/css" href="./styles.css">
+    </head>
+    <body>
+        <div>
+            <button type="button" onclick="ChangeName()">Change Name</button>
+        </div>
+        <div id="deck-ui" onclick="GetCard()">
+            <div id="g-deck">
+            </div>
+            <span id="card-count"></span>
+        </div>
+        <div>
+            <div id="user-list"></div>
+        </div>
+        <h3 id="username-holder"></h3>
+        <div>
+            <ul id="hand">
+            </ul>
+            <div id="g-big-card"></div>
+        </div>
+    </body>
+
+    <script>
+        var overlayActive = false;
+        var ignoreOnce = false;
+        const cardD = document.getElementById('g-big-card');
+        const cardKey = {
+            'knight': {
+                'name': 'Knight',
+                'img': 'knight.png',
+                'desc': "Move the robber. Steal one resource from the owner of a settlement or city adjacent to the robber's new hex.",
+                'color': '#c577ff',
+                'letter': 'K'
+            },
+            'road building': {
+                'name': 'Road Building',
+                'img': 'road-building.png',
+                'desc': "Place 2 new roads as if you had just built them.",
+                'color': '#58a723',
+                'letter': 'R'
+            },
+            'monopoly': {
+                'name': 'Monopoly',
+                'img': 'monopoly.png',
+                'desc': "When you play this card, announce one type of resource. All other players must give you all of their resources of that type.",
+                'color': '#58a723',
+                'letter': 'M'
+            },
+            'year of plenty': {
+                'name': 'Year of Plenty',
+                'img': 'year-of-plenty.png',
+                'desc': "Take any two resources from the bank. Add them to your hand. They can be two of the same resource or two different resources.",
+                'color': '#58a723',
+                'letter': 'Y'
+            },
+            'victory point': {
+                'name': 'Victory Point',
+                'img': 'victory-point.png',
+                'desc': "One victory point. Reveal this card on your turn if, with it, you reach the number of points required for victory.",
+                "color": '#FFC000',
+                'letter': 'V'
+            }
+        }
+
+        window.addEventListener('click', function(e) {
+            if (!ignoreOnce && overlayActive && !cardD.contains(e.target)) {
+                cardD.style.left = '-200%';
+                overlayActive = false;
+                window.removeEventListener('click', this);
+            }
+            ignoreOnce = false;
+        });
+
+        var socket = io.connect('http://localhost:8888');
+        let username = (!!window.localStorage.getItem('username')) ? window.localStorage.getItem('username') : prompt('What is your name?');
+        if (!window.localStorage.getItem('username')) {
+            window.localStorage.setItem('username', username);
+        }
+
+        socket.on('connect', JoinGame);
+        socket.on('reconnect', JoinGame);
+
+        socket.on('game-room', (roomId) => {
+            // clear hand
+            document.getElementById('hand').innerHTML = '';
+
+            // check if roomId matches localStorage room-id
+            if (!window.localStorage.getItem('room-id') || roomId != window.localStorage.getItem('room-id')) {
+                window.localStorage.setItem('room-id', roomId);
+                JoinGame();
+            }
+        });
+
+        socket.on('update-hands', function(data) {
+            // clear user-list and add new users
+            document.getElementById('user-list').innerHTML = '';
+            for (let user in data) {
+                // if current user, skip
+                if (user == username) {
+                    continue;
+                }
+                // create li of user
+                let li = document.createElement('div');
+                li.innerHTML = `<span>${user}</span>`;
+                li.classList.add('each-other-user');
+                li.id = "user-" + user;
+
+                // append to li list of users cards
+                let div = document.createElement('div');
+                div.classList.add('other-user-hand');
+                div.id = "user-" + user + "-cards";
+                for (let card of data[user]) {
+                    let ediv = document.createElement('div');
+                    ediv.classList.add('other-user-card');
+                    ediv.innerText = (card != "?") ? cardKey[card].letter : '?';
+                    if (card != "?") ediv.style.backgroundColor = cardKey[card].color;
+                    div.appendChild(ediv);
+                }
+                li.append(div);
+
+                document.getElementById('user-list').append(li);
+            }
+        });
+
+        socket.on('receive-card', (data) => {
+            // clear hand
+            document.getElementById('hand').innerHTML = '';
+            for (let d of data) {
+                PushCardToHand(d);
+            }
+        })
+
+        socket.on('card-count', function(data) {
+            let deck = document.getElementById('g-deck');
+            deck.innerHTML = '';
+            if (data <= 0) {
+                document.getElementById('card-count').innerHTML = 'No more cards!';
+            } else {
+                document.getElementById('card-count').innerHTML = data;
+                for (let i = 0; i < data; i++) {
+                    let card = document.createElement('div');
+                    card.className = 'g-deck-card';
+                    deck.appendChild(card);
+                }
+            }
+        });
+
+
+        function JoinGame() {
+            let usernameHolder = document.getElementById('username-holder');
+            usernameHolder.innerText = username;
+            socket.emit('join', {
+                name: username,
+                room: 'room1'
+            });
+        }
+
+        function ChangeName() {
+            const newName = prompt('What is your new name?');
+            if (!newName) {
+                return;
+            }
+
+            socket.emit('change-name', {
+                name: newName,
+            });
+
+            window.localStorage.setItem('username', newName);
+            username = newName;
+
+            let usernameHolder = document.getElementById('username-holder');
+            usernameHolder.innerText = username;
+        }
+
+        function ActivateCard(checked, id) {
+            socket.emit('activate-card', {id: id, checked: checked});
+        }
+
+        function GetCard() {
+            if (confirm("Want to get a card?")) {
+                socket.emit('get-card');
+            }
+        }
+
+        function PushCardToHand(data) {
+            // push to hand ul
+            const hand = document.getElementById('hand');
+            const card = document.createElement('li');
+            const cardHeader = document.createElement('div');
+            cardHeader.classList.add('g-card-header');
+            card.classList.add('g-user-card');
+            cardHeader.innerText = data.card;
+            cardHeader.style.backgroundColor = cardKey[data.card].color;
+            card.appendChild(cardHeader);
+
+            //D9B894
+            const cardBody = document.createElement('div');
+            cardBody.classList.add('g-card-body');
+            cardBody.style.backgroundColor = "#D9B894";
+            card.appendChild(cardBody);
+            
+            const used = document.createElement('input');
+            used.type = 'checkbox';
+            used.checked = data.used;
+            used.disabled = true;
+            card.appendChild(used);
+
+            card.onclick = function(event) {
+                if (!overlayActive) {
+                    document.getElementById('g-big-card').style.left = '0';
+                    AddCardDescription(data, used);
+                    overlayActive = true;
+                    ignoreOnce = true;
+                }
+            }
+
+            hand.appendChild(card);
+        }
+
+        function AddCardDescription(data, activeBox) {
+            const card = cardKey[data.card];
+            cardD.innerHTML = '';
+            
+            const cardHeader = document.createElement('div');
+            cardHeader.classList.add('g-big-card-header');
+            cardHeader.innerText = card.name;
+            cardHeader.style.backgroundColor = card.color;
+            cardD.appendChild(cardHeader);
+
+            // const cardImg = document.createElement('img');
+            // cardImg.src = './img/' + card.img;
+            // cardD.appendChild(cardImg);
+
+            const cardDesc = document.createElement('div');
+            cardDesc.classList.add('g-big-card-desc');
+            cardDesc.innerText = card.desc;
+            cardD.appendChild(cardDesc);
+
+            // activate buttons and return to deck button
+            const cardButtons = document.createElement('div');
+            cardButtons.id = 'g-big-card-buttons';
+            cardD.appendChild(cardButtons);
+            
+            const activate = document.createElement('button');
+            activate.classList.add('g-big-card-buttons');
+            activate.classList.add((!data.used) ? 'g-big-card-button-activate' : 'g-big-card-button-deactivate');
+            activate.id = 'g-big-card-activate-button';
+            activate.innerText = (!data.used) ? 'Activate' : 'Deactivate';
+            activate.onclick = function() {
+                data.used = !data.used;
+                activeBox.checked = data.used;
+                ActivateCard(data.used, data.id);
+                if (!data.used) {
+                    activate.innerText = 'Activate';
+                    activate.classList.remove('g-big-card-button-deactivate');
+                    activate.classList.add('g-big-card-button-activate');
+                } else {
+                    activate.innerText = 'Deactivate';
+                    activate.classList.remove('g-big-card-button-activate');
+                    activate.classList.add('g-big-card-button-deactivate');
+                }
+            }
+            cardButtons.appendChild(activate);
+
+            const returnToDeck = document.createElement('button');
+            returnToDeck.classList.add('g-big-card-buttons');
+            returnToDeck.id = 'g-big-card-return-button';
+            returnToDeck.innerText = 'Return to deck';
+            returnToDeck.onclick = function() {
+                socket.emit('return-card-to-deck', data);
+            }
+            cardButtons.appendChild(returnToDeck);
+        }
+    </script>
+</html>
